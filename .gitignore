@@ -1,0 +1,22 @@
+# Credentials
+.env
+.env.*
+!.env.example
+
+# Python environments
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Satellite imagery
+data/raw/
+data/processed/
+*.tif
+*.tiff
+*.SAFE/
+
+# Jupyter
+.ipynb_checkpoints/

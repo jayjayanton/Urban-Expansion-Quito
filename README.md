@@ -28,3 +28,53 @@ Evalscript V3 requires `setup()` to define input bands and output format and `ev
 - [Copernicus Evalscript examples](https://documentation.dataspace.copernicus.eu/APIs/SentinelHub/Evalscript/Examples.html) — examples of NDVI, multitemporal calculations, and change detection.
 
 **Validation pending:** cloud/shadow masking, missing-data treatment, valid-observation counts, temporal consistency, and georeferencing. No processed imagery or validated model outputs are included yet.
+
+## Installation and dependencies
+
+Python 3.10 or newer is recommended. Clone the repository and open a terminal in its root directory:
+
+```bash
+git clone https://github.com/jayjayanton/Urban-Expansion-Quito.git
+cd Urban-Expansion-Quito
+python -m venv .venv
+```
+
+Activate the virtual environment:
+
+**Windows PowerShell:**
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+**macOS/Linux:**
+```bash
+source .venv/bin/activate
+```
+
+Install the project's Python dependencies:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Verify the imports:
+
+```bash
+python -c "import numpy, rasterio, dotenv, sentinelhub; print('Dependencies OK')"
+```
+
+The `requirements.txt` file includes `numpy`, `rasterio`, `python-dotenv`, and `sentinelhub`. Python's built-in `os` and `pathlib` modules require no separate installation.
+
+### API credentials
+
+Create a local `.env` file in the repository root containing the following **placeholders replaced with your own Sentinel Hub OAuth client credentials**:
+
+```dotenv
+SH_CLIENT_ID=your_client_id
+SH_CLIENT_SECRET=your_client_secret
+```
+
+Never commit `.env` or share the client secret. The project `.gitignore` should exclude credentials, local satellite imagery, and ArcGIS Pro workspace files.
+
+After setup, run the acquisition script from the repository root once it has been tested and its path confirmed. Large GeoTIFF outputs are intended to remain local rather than being committed to GitHub.

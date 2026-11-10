@@ -1,6 +1,5 @@
-
-evalscript = """
 //VERSION=3
+
 function setup() {
   return {
     input: [{
@@ -9,7 +8,8 @@ function setup() {
         "B08", "B11", "B12",
         "SCL", "dataMask"
       ],
-      units: "REFLECTANCE"
+      units: "REFLECTANCE",
+        resample: "NEAREST"
     }],
     mosaicking: "ORBIT",
     output: {
@@ -44,7 +44,7 @@ function evaluatePixel(samples) {
   }
 
   function median(arr) {
-    if (arr.length === 0) return NaN;
+    if (arr.length === 0) return -9999;
     arr.sort((a, b) => a - b);
     let mid = Math.floor(arr.length / 2);
 
@@ -65,4 +65,3 @@ function evaluatePixel(samples) {
     count
   ];
 }
-"""

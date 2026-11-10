@@ -53,7 +53,11 @@ BANDS = [
 # 2. MONTHLY MEDIAN EVALSCRIPT
 # ----------------------------------
 
+evalscript_path = (
+    PROJECT_ROOT / "scripts" / "monthly_composite.js"
+)
 
+evalscript = evalscript_path.read_text(encoding="utf-8")
 # ----------------------------------
 # 3. REQUEST SENTINEL-2 DATA
 # ----------------------------------
@@ -73,7 +77,7 @@ if MONTH == 12:
 else:
     end_date = f"{YEAR}-{MONTH + 1:02d}-01"
 
-print(f"Requesting imagery: {start_date} to {end_date}")git 
+print(f"Requesting imagery: {start_date} to {end_date}")
 print(f"Output dimensions: {size}")
 
 request = SentinelHubRequest(

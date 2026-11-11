@@ -23,3 +23,9 @@ data/processed/
 
 # Local ArcGIS Pro project
 /Sentinel Project/
+
+# Local development settings
+.vscode/
+
+# Local satellite data
+/data/

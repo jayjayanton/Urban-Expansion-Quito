@@ -12,10 +12,6 @@ __pycache__/
 *.pyc
 
 # Satellite imagery
-# data/raw/
-# data/processed/
-# *.tif
-# *.tiff
 *.SAFE/
 
 # Jupyter
@@ -26,6 +22,3 @@ __pycache__/
 
 # Local development settings
 .vscode/
-
-# Local satellite data
-/data/

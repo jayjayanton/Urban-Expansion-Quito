@@ -1,6 +1,7 @@
 
 import os
 from pathlib import Path
+from datetime import date, timedelta
 
 import numpy as np
 import rasterio
@@ -21,11 +22,11 @@ from sentinelhub import (
 # ----------------------------------
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 config = SHConfig()
-config.sh_client_id = os.environ["SH_CLIENT_ID"]
-config.sh_client_secret = os.environ["SH_CLIENT_SECRET"]
+config.sh_client_id = os.environ["SH_CLIENT_ID"].strip()
+config.sh_client_secret = os.environ["SH_CLIENT_SECRET"].strip()
 
 # Copernicus Data Space endpoints
 config.sh_base_url = "https://sh.dataspace.copernicus.eu"
@@ -34,32 +35,50 @@ config.sh_token_url = (
     "auth/realms/CDSE/protocol/openid-connect/token"
 )
 
-YEAR = 2025 
-MONTH = 1
+# Sentinel-2 L2A collection for Copernicus Data Space
+SENTINEL2_CDSE = DataCollection.SENTINEL2_L2A.define_from(
+    name="sentinel2_l2a_cdse",
+    service_url=config.sh_base_url,
+)
+
+# Temporal configuration
+YEARS = range(2016, 2026)
+MONTHS = range(1, 13)
+
+# Spatial configuration
 RESOLUTION = 10
 
-# Small test area near Tumbaco.
-# Coordinates: west, south, east, north.
-# Expand later to cover all five valleys.
+# Small test area near Tumbaco
+# Coordinates: west, south, east, north (WGS84)
 AOI = (-78.42, -0.23, -78.40, -0.21)
 
 BANDS = [
-    "B02", "B03", "B04",
-    "B08", "B11", "B12",
+    "B02",
+    "B03",
+    "B04",
+    "B08",
+    "B11",
+    "B12",
     "valid_count",
 ]
 
 # ----------------------------------
-# 2. MONTHLY MEDIAN EVALSCRIPT
+# 2. LOAD EVALSCRIPT
 # ----------------------------------
 
 evalscript_path = (
     PROJECT_ROOT / "scripts" / "monthly_composite.js"
 )
 
+if not evalscript_path.is_file():
+    raise FileNotFoundError(
+        f"Evalscript not found: {evalscript_path}"
+    )
+
 evalscript = evalscript_path.read_text(encoding="utf-8")
+
 # ----------------------------------
-# 3. REQUEST SENTINEL-2 DATA
+# 3. DEFINE STUDY AREA
 # ----------------------------------
 
 bbox_wgs84 = BBox(AOI, crs=CRS.WGS84)
@@ -67,75 +86,243 @@ bbox = bbox_wgs84.transform(CRS.UTM_17S)
 
 size = bbox_to_dimensions(
     bbox,
-    resolution=RESOLUTION
-)
-
-start_date = f"{YEAR}-{MONTH:02d}-01"
-
-if MONTH == 12:
-    end_date = f"{YEAR + 1}-01-01"
-else:
-    end_date = f"{YEAR}-{MONTH + 1:02d}-01"
-
-print(f"Requesting imagery: {start_date} to {end_date}")
-print(f"Output dimensions: {size}")
-
-request = SentinelHubRequest(
-    evalscript=evalscript,
-    input_data=[
-        SentinelHubRequest.input_data(
-            data_collection=DataCollection.SENTINEL2_L2A,
-            time_interval=(start_date, end_date),
-            mosaicking_order="leastCC",
-        )
-    ],
-    responses=[
-        SentinelHubRequest.output_response(
-            "default", MimeType.TIFF
-        )
-    ],
-    bbox=bbox,
-    size=size,
-    config=config,
-)
-
-data = request.get_data()[0]
-
-# ----------------------------------
-# 4. SAVE GEOTIFF
-# ----------------------------------
-
-output_dir = (
-    PROJECT_ROOT / "data" / "processed" / str(YEAR)
-)
-output_dir.mkdir(parents=True, exist_ok=True)
-
-output_path = output_dir / (
-    f"sentinel2_{YEAR}_{MONTH:02d}.tif"
+    resolution=RESOLUTION,
 )
 
 transform = from_bounds(
-    bbox.min_x, bbox.min_y,
-    bbox.max_x, bbox.max_y,
-    size[0], size[1]
+    bbox.min_x,
+    bbox.min_y,
+    bbox.max_x,
+    bbox.max_y,
+    size[0],
+    size[1],
 )
 
-with rasterio.open(
-    output_path,
-    "w",
-    driver="GTiff",
-    height=data.shape[0],
-    width=data.shape[1],
-    count=data.shape[2],
-    dtype="float32",
-    crs="EPSG:32717",
-    transform=transform,
-    compress="deflate",
-) as dst:
+OUTPUT_CRS = rasterio.crs.CRS.from_epsg(32717)
 
-    for i, band_name in enumerate(BANDS):
-        dst.write(data[:, :, i], i + 1)
-        dst.set_band_description(i + 1, band_name)
+print("Study area:", AOI)
+print("Resolution:", RESOLUTION, "meters")
+print("Raster dimensions:", size)
 
-print(f"Saved: {output_path}")
-print("Valid observations:", np.nanmax(data[:, :, 6]))
+# ----------------------------------
+# 4. VALIDATE EXISTING GEOTIFF
+# ----------------------------------
+
+def is_valid_geotiff(path):
+    """
+    Check whether an existing GeoTIFF matches
+    the current spatial configuration.
+    """
+
+    if not path.is_file():
+        return False
+
+    try:
+        with rasterio.open(path) as src:
+            valid = (
+                src.count == len(BANDS)
+                and src.width == size[0]
+                and src.height == size[1]
+                and src.crs == OUTPUT_CRS
+                and src.dtypes == ("float32",) * len(BANDS)
+                and src.transform.almost_equals(transform)
+                and tuple(src.descriptions) == tuple(BANDS)
+            )
+
+            if not valid:
+                return False
+
+            count_band = src.read(7)
+
+            if not np.all(np.isfinite(count_band)):
+                return False
+
+            if np.any(count_band < 0):
+                return False
+
+            return True
+
+    except (rasterio.errors.RasterioIOError, ValueError):
+        return False
+
+# ----------------------------------
+# 5. DOWNLOAD ONE MONTH
+# ----------------------------------
+
+def download_month(year, month):
+
+    output_dir = (
+        PROJECT_ROOT / "data" /  str(year)
+    )
+
+    output_path = output_dir / (
+        f"sentinel2_{year}_{month:02d}.tif"
+    )
+
+    # Skip existing valid GeoTIFFs
+    if is_valid_geotiff(output_path):
+        print(
+            f"SKIPPED: {year}-{month:02d} "
+            "(existing GeoTIFF is valid)"
+        )
+        return "skipped"
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Define monthly date interval
+    start_date = date(year, month, 1)
+
+    if month == 12:
+        next_month = date(year + 1, 1, 1)
+    else:
+        next_month = date(year, month + 1, 1)
+
+    end_date = next_month - timedelta(days=1)
+
+    print(f"\nProcessing: {year}-{month:02d}")
+    print(f"Date range: {start_date} to {end_date}")
+
+    # Sentinel Hub Process API request
+    request = SentinelHubRequest(
+        evalscript=evalscript,
+        input_data=[
+            SentinelHubRequest.input_data(
+                data_collection=SENTINEL2_CDSE,
+                time_interval=(
+                    start_date.isoformat(),
+                    end_date.isoformat(),
+                ),
+                mosaicking_order="leastCC",
+            )
+        ],
+        responses=[
+            SentinelHubRequest.output_response(
+                "default",
+                MimeType.TIFF,
+            )
+        ],
+        bbox=bbox,
+        size=size,
+        config=config,
+    )
+
+    print("Processing URL:", request.download_list[0].url)
+
+    # Download imagery
+    data = request.get_data()[0]
+
+    # Verify response dimensions
+    if (
+        data.ndim != 3
+        or data.shape[0] != size[1]
+        or data.shape[1] != size[0]
+        or data.shape[2] != len(BANDS)
+    ):
+        raise ValueError(
+            f"Unexpected raster dimensions: {data.shape}"
+        )
+
+    # Assess valid observations
+    valid_count = data[:, :, 6]
+
+    if not np.all(np.isfinite(valid_count)):
+        raise ValueError(
+            "Observation-count band contains non-finite values."
+        )
+
+    valid_pixels = valid_count > 0
+
+    print("Maximum valid observations:", np.max(valid_count))
+    print("Pixels with valid observations:", np.sum(valid_pixels))
+    print(
+        "Valid coverage:",
+        f"{100 * np.mean(valid_pixels):.2f}%"
+    )
+
+    # Do not save completely empty composites
+    if not np.any(valid_pixels):
+        print(
+            f"NO DATA: {year}-{month:02d} "
+            "(no valid observations; file not saved)"
+        )
+        return "no_data"
+
+    # Temporary file for safe export
+    temp_path = output_path.with_suffix(".partial.tif")
+
+    try:
+        with rasterio.open(
+            temp_path,
+            "w",
+            driver="GTiff",
+            height=data.shape[0],
+            width=data.shape[1],
+            count=data.shape[2],
+            dtype="float32",
+            crs=OUTPUT_CRS,
+            transform=transform,
+            compress="deflate",
+        ) as dst:
+
+            for i, band_name in enumerate(BANDS):
+                dst.write(data[:, :, i], i + 1)
+                dst.set_band_description(i + 1, band_name)
+
+            dst.update_tags(
+                year=year,
+                month=month,
+                resolution_m=RESOLUTION,
+                source="Sentinel-2 L2A CDSE",
+                composite="monthly median",
+            )
+
+        # Validate the completed export
+        if not is_valid_geotiff(temp_path):
+            raise ValueError(
+                "Exported GeoTIFF failed validation."
+            )
+
+        temp_path.replace(output_path)
+
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+    print(f"SAVED: {output_path}")
+
+    return "downloaded"
+
+# ----------------------------------
+# 6. PROCESS ALL YEARS AND MONTHS
+# ----------------------------------
+
+results = {
+    "downloaded": 0,
+    "skipped": 0,
+    "no_data": 0,
+    "failed": 0,
+}
+
+for year in YEARS:
+    for month in MONTHS:
+        try:
+            status = download_month(year, month)
+            results[status] += 1
+
+        except Exception as exc:
+            results["failed"] += 1
+            print(f"\nFAILED: {year}-{month:02d}")
+            print(f"{type(exc).__name__}: {exc}")
+
+# ----------------------------------
+# 7. PROCESSING SUMMARY
+# ----------------------------------
+
+print("\n" + "=" * 40)
+print("SENTINEL-2 PROCESSING SUMMARY")
+print("=" * 40)
+
+for status, count in results.items():
+    print(f"{status.capitalize():12}: {count}")
+
+print("=" * 40)

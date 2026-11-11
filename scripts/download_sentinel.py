@@ -49,8 +49,13 @@ YEARS = range(2016, 2026)
 RESOLUTION = 10
 
 # Small test area near Tumbaco
-# Coordinates: west, south, east, north (WGS84)
-AOI = (-78.42, -0.23, -78.40, -0.21)
+# Reduced study area: Nayón, Cumbayá, Tumbaco, Puembo
+# West, South, East, North (WGS84)
+AOI = (-78.47, -0.26, -78.32, -0.11)
+
+# Original AOI near Tumbaco
+# West, South, East, North (WGS84)
+# AOI = (-78.42, -0.23, -78.40, -0.21)
 
 BANDS = [
     "B02",
@@ -156,7 +161,7 @@ def download_year(year):
     )
 
     output_path = output_dir / (
-        f"sentinel2_{year}.tif"
+        f"sentinel2_{year}_AOI.tif"
     )
 
     # Skip existing valid GeoTIFFs
@@ -204,6 +209,9 @@ def download_year(year):
     print("Processing URL:", request.download_list[0].url)
 
     # Download imagery
+    print("Output dimensions:", size)
+    print("Total pixels:", size[0] * size[1])
+    print("Approximate area (km²):", size[0] * size[1] * 100 / 1_000_000)
     data = request.get_data()[0]
 
     # Verify response dimensions

@@ -12,10 +12,10 @@ __pycache__/
 *.pyc
 
 # Satellite imagery
-data/raw/
-data/processed/
-*.tif
-*.tiff
+# data/raw/
+# data/processed/
+# *.tif
+# *.tiff
 *.SAFE/
 
 # Jupyter

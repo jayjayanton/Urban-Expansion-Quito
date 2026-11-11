@@ -43,7 +43,7 @@ SENTINEL2_CDSE = DataCollection.SENTINEL2_L2A.define_from(
 
 # Temporal configuration
 YEARS = range(2016, 2026)
-MONTHS = range(1, 13)
+# MONTHS = range(1, 13)
 
 # Spatial configuration
 RESOLUTION = 10
@@ -149,20 +149,20 @@ def is_valid_geotiff(path):
 # 5. DOWNLOAD ONE MONTH
 # ----------------------------------
 
-def download_month(year, month):
+def download_year(year):
 
     output_dir = (
         PROJECT_ROOT / "data" /  str(year)
     )
 
     output_path = output_dir / (
-        f"sentinel2_{year}_{month:02d}.tif"
+        f"sentinel2_{year}.tif"
     )
 
     # Skip existing valid GeoTIFFs
     if is_valid_geotiff(output_path):
         print(
-            f"SKIPPED: {year}-{month:02d} "
+            f"SKIPPED: {year} "
             "(existing GeoTIFF is valid)"
         )
         return "skipped"
@@ -170,16 +170,11 @@ def download_month(year, month):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Define monthly date interval
-    start_date = date(year, month, 1)
+    start_date = date(year, 1, 1)
+    end_date = date(year, 12, 31)
 
-    if month == 12:
-        next_month = date(year + 1, 1, 1)
-    else:
-        next_month = date(year, month + 1, 1)
 
-    end_date = next_month - timedelta(days=1)
-
-    print(f"\nProcessing: {year}-{month:02d}")
+    print(f"\nProcessing: {year}")
     print(f"Date range: {start_date} to {end_date}")
 
     # Sentinel Hub Process API request
@@ -242,7 +237,7 @@ def download_month(year, month):
     # Do not save completely empty composites
     if not np.any(valid_pixels):
         print(
-            f"NO DATA: {year}-{month:02d} "
+            f"NO DATA: {year}"
             "(no valid observations; file not saved)"
         )
         return "no_data"
@@ -261,6 +256,7 @@ def download_month(year, month):
             dtype="float32",
             crs=OUTPUT_CRS,
             transform=transform,
+            nodata=-9999.0,
             compress="deflate",
         ) as dst:
 
@@ -270,10 +266,11 @@ def download_month(year, month):
 
             dst.update_tags(
                 year=year,
-                month=month,
                 resolution_m=RESOLUTION,
                 source="Sentinel-2 L2A CDSE",
-                composite="monthly median",
+                composite="annual median",
+                start_date=start_date.isoformat(),
+                end_date=end_date.isoformat(),
             )
 
         # Validate the completed export
@@ -304,15 +301,14 @@ results = {
 }
 
 for year in YEARS:
-    for month in MONTHS:
-        try:
-            status = download_month(year, month)
-            results[status] += 1
+    try:
+        status = download_year(year)
+        results[status] += 1
 
-        except Exception as exc:
-            results["failed"] += 1
-            print(f"\nFAILED: {year}-{month:02d}")
-            print(f"{type(exc).__name__}: {exc}")
+    except Exception as exc:
+        results["failed"] += 1
+        print(f"\nFAILED: {year}")
+        print(f"{type(exc).__name__}: {exc}")
 
 # ----------------------------------
 # 7. PROCESSING SUMMARY

@@ -126,3 +126,24 @@ Compare request success/failure, elapsed processing time, output size, valid cov
 
 For training, align ESA WorldCover 2020/2021 to the Sentinel-2 10 m grid using nearest-neighbor resampling; WorldCover built-up class 50 can provide candidate binary labels, but independent reference checks remain necessary. WorldCover's 2020/2021 maps are not annual labels for the entire 2016–2025 period.
 
+
+## Step 3 — Spatial tiling and mosaicking (2016 pilot)
+
+The acquisition scripts now process **four adjacent 5 × 5 km tiles** in a 2 × 2 grid, covering **100 km²**. All tiles share the same EPSG:32717 projected 10 m grid. This tests whether smaller API requests are more reliable than a single large annual request. The tile origin is anchored at the original Tumbaco test location; the 2 × 2 pilot extends east and north of the original tile. Configure `GRID_COLS` and `GRID_ROWS` in `scripts/acquisition_common.py` to change the number of tiles. The default remains **2016 only**.
+
+The three strategies produce four annual, sixteen quarterly, or forty-eight monthly tile files for the pilot. Downloads are stored under `data/benchmarks/<frequency>/2016/`, using a `tile_r##_c##` suffix. Once downloads finish, mosaic each period **spatially**, using the new `scripts/mosaic_tiles.py`:
+
+```powershell
+python scripts/download_annual.py
+python scripts/mosaic_tiles.py --frequency annual --year 2016 --period annual
+
+python scripts/download_quarterly.py
+python scripts/mosaic_tiles.py --frequency quarterly --year 2016 --period Q1
+
+python scripts/download_monthly.py
+python scripts/mosaic_tiles.py --frequency monthly --year 2016 --period 01
+```
+
+Repeat the mosaic command for Q2–Q4 and months 02–12 as needed. The script requires at least two tiles and verifies band count, resolution, CRS, and band descriptions. **Important:** it currently mosaics whatever matching tiles exist; before treating an output as complete, verify that all four expected tiles were downloaded. It does not yet aggregate monthly or quarterly mosaics into annual rasters. Spatial mosaicking joins neighboring places; temporal aggregation combines different dates for the same place. The annual composite method and monthly/quarterly methods are not mathematically identical.
+
+**Scale considerations:** the standard Sentinel Hub Process API output-size limit is not a total-area allowance. Smaller tiles reduce per-request load but may increase total requests and processing-unit consumption. A national-scale workflow would need quota-aware orchestration and likely batch/cloud processing. Benchmark actual failures and elapsed times before increasing tile dimensions or study extent.

@@ -3,3 +3,4 @@ rasterio
 python-dotenv
 sentinelhub
 boto3
+requests

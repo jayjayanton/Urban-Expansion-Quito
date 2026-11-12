@@ -66,18 +66,28 @@ python -c "import numpy, rasterio, dotenv, sentinelhub; print('Dependencies OK')
 
 The `requirements.txt` file includes `numpy`, `rasterio`, `python-dotenv`, and `sentinelhub`. Python's built-in `os` and `pathlib` modules require no separate installation.
 
-### API credentials
+### API credentials — primary and fallback are separate
 
-Create a local `.env` file in the repository root containing the following **placeholders replaced with your own Sentinel Hub OAuth client credentials**:
+The project uses **two independent authentication mechanisms**. Create a local `.env` file in the repository root with the credentials for the workflow(s) you intend to run:
 
 ```dotenv
-SH_CLIENT_ID=your_client_id
-SH_CLIENT_SECRET=your_client_secret
+# PRIMARY: Sentinel Hub Process API (OAuth client credentials)
+SH_CLIENT_ID=your_sentinel_hub_client_id
+SH_CLIENT_SECRET=your_sentinel_hub_client_secret
+
+# FALLBACK: Copernicus Data Space S3 object storage (S3 access keys)
+CDSE_S3_ACCESS_KEY=your_cdse_s3_access_key
+CDSE_S3_SECRET_KEY=your_cdse_s3_secret_key
 ```
 
-Never commit `.env` or share the client secret. The project `.gitignore` should exclude credentials and local ArcGIS Pro workspace files. Check imagery sizes before committing rasters to GitHub.
+| Workflow | Authentication | Environment variables |
+|---|---|---|
+| `download_annual.py`, `download_quarterly.py`, `download_monthly.py` | Sentinel Hub OAuth | `SH_CLIENT_ID`, `SH_CLIENT_SECRET` |
+| `download_fallback.py` | CDSE S3 access keys | `CDSE_S3_ACCESS_KEY`, `CDSE_S3_SECRET_KEY` |
 
-After setup, run the acquisition script from the repository root once it has been tested and its path confirmed. Large GeoTIFF outputs are intended to remain local rather than being committed to GitHub.
+**Do not interchange these credential pairs.** The fallback STAC catalogue search does not require S3 credentials in `--dry-run` mode; downloading JP2 assets from S3 does. If you use only one acquisition method, you only need its corresponding credentials. The fallback does not automatically reuse Sentinel Hub OAuth credentials.
+
+Never commit `.env`, real keys, or secrets. Ensure `.env` is excluded by `.gitignore`; keep large rasters and local ArcGIS Pro workspace files out of version control. Run scripts from the repository root and keep scientific GeoTIFF outputs local.
 
 ## Step 1 — Sentinel-2 annual composite examples (2016 vs 2025)
 

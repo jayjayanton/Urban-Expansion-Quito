@@ -192,6 +192,12 @@ def mosaic(frequency, year, period=None, expected_tiles=None):
 
         profile = reference.profile.copy()
 
+        # Source strips or block sizes may be incompatible with tiled GeoTIFFs.
+        # Explicit 256x256 blocks satisfy GDAL's multiple-of-16 requirement.
+        profile.pop("blockxsize", None)
+        profile.pop("blockysize", None)
+        profile.pop("rows_per_strip", None)
+
         profile.update(
             height=data.shape[1],
             width=data.shape[2],
@@ -200,6 +206,8 @@ def mosaic(frequency, year, period=None, expected_tiles=None):
             compress="deflate",
             predictor=3,
             tiled=True,
+            blockxsize=256,
+            blockysize=256,
             nodata=NODATA
         )
 

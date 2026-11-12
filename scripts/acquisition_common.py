@@ -21,7 +21,11 @@ RESOLUTION = 10
 SIDE_METERS = 5000
 # Same original test location near Tumbaco, centered in WGS84.
 CENTER_LON_LAT = (-78.41, -0.22)
-YEARS = range(2016, 2026)
+# Full historical run (uncomment after validating the 2016 benchmark):
+# YEARS = range(2016, 2026)
+
+# Test run: all three download scripts process 2016 only.
+YEARS = [2016]
 PAUSE_SECONDS = 5
 
 config = SHConfig()

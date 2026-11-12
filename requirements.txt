@@ -2,3 +2,4 @@ numpy
 rasterio
 python-dotenv
 sentinelhub
+boto3

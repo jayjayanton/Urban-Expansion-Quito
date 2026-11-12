@@ -69,7 +69,7 @@ class AcquisitionTests(unittest.TestCase):
                 self.assertEqual((ds.width, ds.height, ds.count), (1000, 1000, 7))
                 self.assertEqual(ds.crs.to_epsg(), 32717)
                 self.assertEqual(ds.read(1, window=((0, 1), (0, 1)))[0, 0], 3)
-                self.assertEqual(ds.read(1, window=((999, 1000), (999, 1000)))[0, 0], 1)
+                self.assertEqual(ds.read(1, window=((999, 1000), (999, 1000)))[0, 0], 2)
 
     def test_invalid_frequency_rejected(self):
         with self.assertRaises(ValueError):

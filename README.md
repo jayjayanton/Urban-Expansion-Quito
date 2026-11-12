@@ -147,3 +147,39 @@ python scripts/mosaic_tiles.py --frequency monthly --year 2016 --period 01
 Repeat the mosaic command for Q2–Q4 and months 02–12 as needed. The script requires at least two tiles and verifies band count, resolution, CRS, and band descriptions. **Important:** it currently mosaics whatever matching tiles exist; before treating an output as complete, verify that all four expected tiles were downloaded. It does not yet aggregate monthly or quarterly mosaics into annual rasters. Spatial mosaicking joins neighboring places; temporal aggregation combines different dates for the same place. The annual composite method and monthly/quarterly methods are not mathematically identical.
 
 **Scale considerations:** the standard Sentinel Hub Process API output-size limit is not a total-area allowance. Smaller tiles reduce per-request load but may increase total requests and processing-unit consumption. A national-scale workflow would need quota-aware orchestration and likely batch/cloud processing. Benchmark actual failures and elapsed times before increasing tile dimensions or study extent.
+
+
+## Step 4 — Fallback acquisition via CDSE STAC and S3 (2025 pilot)
+
+### Motivation and scope
+
+The primary acquisition route is the Sentinel Hub Process API, which executes the project's Evalscript server-side. When that route is unavailable or impractical because of processing-unit limits or service restrictions, `scripts/download_fallback.py` provides an independent **annual** acquisition route using the Copernicus Data Space STAC catalogue and authenticated S3 object storage. This is not an automatic retry for invalid credentials or malformed API requests. The fallback does not consume Sentinel Hub processing units, but it downloads large source files and requires local processing.
+
+### Reproducible acquisition method
+
+1. Search the `sentinel-2-l2a` STAC collection for acquisitions intersecting the requested WGS84 bounding box and year. The `--max-cloud` filter uses catalogue scene-wide cloud cover, **not** cloud cover over the study AOI.
+2. Optionally use `--max-scenes N` to choose up to N acquisitions distributed across the year, preferring lower cloud cover within temporal windows. Without this option, all matching catalogue scenes are considered; this may be expensive.
+3. For each selected acquisition, retrieve B02, B03, B04 and B08 (native 10 m), B11 and B12 (native 20 m), and the Scene Classification Layer SCL (20 m) from S3 as JP2 assets. Source assets are cached by URL-derived hash and reused across output tiles. The default cache is removed after each year unless `--keep-cache` is supplied.
+4. Reproject and resample bands onto a common 10 m EPSG:32717 grid. Spectral bands use bilinear interpolation except B11/B12, which use nearest-neighbor; SCL uses nearest-neighbor to preserve categorical values. The script applies a simplified processing-baseline-dependent reflectance offset, which **requires validation against product metadata**.
+5. Retain pixels whose SCL class is 4 (vegetation), 5 (non-vegetated), 6 (water), or 7 (unclassified), subject to valid spectral data. Class 7 is not guaranteed cloud-free and should be evaluated during quality assessment. Compute a per-band median across selected valid acquisitions and record `valid_count` as the seventh band. Zero counts denote no usable observation, while missing spectral values are written as -9999.
+6. Write tiled GeoTIFFs named `data/<year>/tiles/sentinel2_<year>_r<row>_c<col>.tif`, then combine them spatially with `scripts/mosaic_tiles.py`. Mosaicking does not perform additional temporal aggregation.
+
+### Observed 2025 pilot
+
+The run `python scripts/download_fallback.py --year 2025 --max-scenes 12` uses the current script's default bounding box `[-78.47, -0.248, -78.32, -0.11]` and 10 m resolution. The catalogue returned **91 candidate scenes**, of which **12** were selected across 2025. Each acquisition requires seven JP2 assets, giving **84 distinct source files** for the observed single-granule selection, shared by **12 output tiles** in a 3-row × 4-column grid. The projected output extent was **1,672 × 1,528 pixels**. In the observed run, initial downloading and processing of tile r0 c0 took about 28 minutes; subsequent cached tiles completed much faster. These are observed timings, not general performance guarantees. The number of cached files can be higher when multiple source granules are needed.
+
+### Usage
+
+Install dependencies with `python -m pip install -r requirements.txt` and configure `CDSE_S3_ACCESS_KEY` and `CDSE_S3_SECRET_KEY` in the local, untracked `.env` file. These are distinct from Sentinel Hub OAuth credentials.
+
+```powershell
+python scripts/download_fallback.py --year 2025 --dry-run --max-scenes 12
+python scripts/download_fallback.py --year 2025 --max-scenes 12
+python scripts/mosaic_tiles.py --frequency annual --year 2025 --expected-tiles 12
+```
+
+**Important:** Existing output tiles are skipped based on geometry, band count, and CRS, not the selected scene IDs. If `--max-scenes`, selection rules, or processing parameters change, remove or version the affected outputs before rerunning; otherwise stale tiles may be mistaken for current results. The local JP2 cache is reusable only while retained.
+
+### Methodological limitations and validation
+
+The fallback is **not scientifically identical** to Sentinel Hub Evalscript composites: scene sampling, orbit handling, masking, reflectance corrections, resampling, and median aggregation may differ. Compare both methods on a common AOI and dates before combining their outputs. Inspect spatial coverage, the fraction of pixels with `valid_count=0`, cloud/shadow artifacts, and reflectance ranges. A maximum `valid_count=12` only indicates that some pixels had twelve observations; it does not establish complete coverage. The 2025 pilot is an acquisition/compositing milestone, **not** a validated urban classification or change-detection result. Source JP2 files and large GeoTIFFs remain local and should not be committed to GitHub.

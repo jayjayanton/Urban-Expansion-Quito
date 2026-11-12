@@ -120,9 +120,29 @@ Never commit `.env`, real keys, or secrets. Ensure `.env` is excluded by `.gitig
 
 ## Study AOI and spatial processing conventions
 
-The **target common processing AOI** for future comparisons between the Sentinel Hub Process API (primary) and CDSE STAC + S3 (fallback) is the WGS84 longitude/latitude bounding box **west -78.47, south -0.248, east -78.32, north -0.11** (EPSG:4326). Both workflows should project to **EPSG:32717 (UTM zone 17S)** and produce **10 m pixels** on the **same snapped grid**, with matching bounds, transform, dimensions, band order, masking, and temporal windows before quantitative comparisons. The observed fallback run used a **1,672 × 1,528 pixel** grid divided into **3 rows × 4 columns** of up to 512 × 512 pixels. The seven output bands are B02, B03, B04, B08, B11, B12 and valid_count.
+The following table defines the **target common processing AOI** for future Sentinel Hub Process API (primary) and CDSE STAC + S3 (fallback) runs. Coordinates are expressed in WGS84 longitude/latitude (EPSG:4326).
 
-**Scope caveat:** The existing Sentinel Hub benchmarks do **not yet use this AOI**: they began with a 5 km × 5 km Tumbaco tile and a four-tile (2 × 2) pilot. The common bounding box is a target for future harmonized runs, not a claim that past benchmark results share the fallback extent. It is also a current processing AOI, **not** a finalized boundary for every planned eastern-valley study area (including Guayllabamba). Confirm the final study footprint before regional conclusions.
+| Parameter | Value | Notes |
+|---|---|---|
+| West longitude | -78.470 | WGS84 degrees |
+| South latitude | -0.248 | WGS84 degrees |
+| East longitude | -78.320 | WGS84 degrees |
+| North latitude | -0.110 | WGS84 degrees |
+| Input CRS | EPSG:4326 | WGS84 geographic coordinates |
+| Output CRS | EPSG:32717 | WGS84 / UTM zone 17S |
+| Output pixel resolution | 10 m | Common target grid |
+| Fallback raster dimensions (2025 pilot) | 1,672 × 1,528 pixels | Width × height; observed for the current fallback grid |
+| Fallback processing tiles (2025 pilot) | 3 rows × 4 columns (12 tiles) | Maximum tile size 512 × 512 pixels |
+| Output band order | B02, B03, B04, B08, B11, B12, valid_count | Six spectral bands plus observation count |
+
+Both acquisition workflows should use the **same snapped projected grid**, including matching bounds, transform, dimensions, band order, masking, and temporal windows, before quantitative comparisons.
+
+| Workflow | AOI currently implemented | Relationship to common target AOI |
+|---|---|---|
+| Primary — Sentinel Hub Process API | 5 km × 5 km Tumbaco benchmark, expanded to a 2 × 2 pilot | **Not yet harmonized** with the target bounding box |
+| Fallback — CDSE STAC + S3 | Bounding box above | Used for the observed 2025 pilot |
+
+**Scope caveat:** The common bounding box is the current processing AOI, **not** a finalized study boundary for every planned eastern-valley area (including Guayllabamba). Confirm the full study footprint before drawing regional conclusions. The historical Sentinel Hub benchmarks should not be described as covering the same extent as the fallback until they are rerun on the common grid.
 
 ### Why fallback outputs spatial tiles
 

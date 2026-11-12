@@ -8,6 +8,7 @@ Then: python scripts/download_annual_catalog.py --start-year 2016 --end-year 202
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
 import logging
@@ -54,7 +55,7 @@ def args_parser():
     p.add_argument("--resolution", type=float, default=10)
     p.add_argument("--tile-pixels", type=int, default=512)
     p.add_argument("--max-cloud", type=float, default=100)
-    p.add_argument("--max-scenes", type=int, default=None, help="TEST ONLY: cap number of STAC items")
+    p.add_argument("--max-scenes", type=int, default=None, help="Select up to N scenes distributed across the year; prefer lower cloud cover")
     p.add_argument("--output", type=Path, default=DATA_DIR)
     p.add_argument("--cache", type=Path, default=DATA_DIR / ".cdse_cache")
 
@@ -113,6 +114,72 @@ def search_items(session, year, bbox, max_cloud):
             url = None
     items.sort(key=lambda x: (x.get("properties", {}).get("datetime", ""), x["id"]))
     return items
+
+
+
+def select_distributed_scenes(items, year, limit):
+    """Select N scenes distributed across the calendar year, not just January.
+
+    Divide the year into N equal time windows. Within each window choose the
+    acquisition with the lowest catalogue cloud-cover percentage. If a window
+    has no acquisitions, choose the nearest unused scene to its center.
+
+    Cloud cover describes the full source scene, not necessarily the Quito AOI.
+    If no limit is given, preserve all catalogue results.
+    """
+    if limit is None or len(items) <= limit:
+        return items
+    if limit < 1:
+        raise ValueError("--max-scenes must be a positive integer")
+
+    start = datetime(year, 1, 1, tzinfo=timezone.utc)
+    duration = (datetime(year + 1, 1, 1, tzinfo=timezone.utc) - start).total_seconds()
+
+    def position(item):
+        timestamp = item.get("properties", {}).get("datetime")
+        if not timestamp:
+            return None
+        try:
+            return (datetime.fromisoformat(timestamp.replace("Z", "+00:00")) - start).total_seconds() / duration
+        except ValueError:
+            return None
+
+    def cloud(item):
+        value = item.get("properties", {}).get("eo:cloud_cover")
+        return float(value) if value is not None else float("inf")
+
+    windows = [[] for _ in range(limit)]
+    for item in items:
+        pos = position(item)
+        if pos is not None:
+            index = min(limit - 1, max(0, int(pos * limit)))
+            windows[index].append(item)
+
+    chosen = []
+    used = set()
+    empty_centers = []
+    for index, candidates in enumerate(windows):
+        center = (index + 0.5) / limit
+        if not candidates:
+            empty_centers.append(center)
+            continue
+        best = min(candidates, key=lambda item: (
+            cloud(item), abs(position(item) - center), item["id"]))
+        chosen.append(best)
+        used.add(best["id"])
+
+    remaining = [item for item in items if item["id"] not in used]
+    for center in empty_centers:
+        if not remaining:
+            break
+        best = min(remaining, key=lambda item: (
+            abs((position(item) if position(item) is not None else -10) - center),
+            cloud(item), item["id"]))
+        chosen.append(best)
+        remaining.remove(best)
+
+    return sorted(chosen, key=lambda item: (
+        item.get("properties", {}).get("datetime") or "", item["id"]))
 
 
 def asset_for(item, band):
@@ -282,11 +349,16 @@ def main():
     for year in years:
         LOG.info("Searching Sentinel-2 L2A catalogue for %s", year)
         items = search_items(session, year, args.bbox, args.max_cloud)
-        # Testing: use only the earliest N catalogue products. Existing test
-        # TIFFs must be deleted before full-year processing (skip is structural).
-        if args.max_scenes is not None:
-            items = items[:args.max_scenes]
-        LOG.info("%s: %s candidate scenes", year, len(items))
+        # Sample across the WHOLE year when a scene limit is supplied.
+        # Existing test TIFFs must be deleted before changing scene selection:
+        # the current resume check validates structure, not provenance.
+        total_candidates = len(items)
+        items = select_distributed_scenes(items, year, args.max_scenes)
+        LOG.info("%s: selected %s of %s catalogue scenes", year, len(items), total_candidates)
+        for item in items:
+            LOG.info("  selected %s (cloud cover: %s%%)",
+                     item.get("properties", {}).get("datetime"),
+                     item.get("properties", {}).get("eo:cloud_cover"))
         if not items:
             LOG.warning("No L2A products found for %s; early 2016 L2A coverage may be limited", year)
             continue

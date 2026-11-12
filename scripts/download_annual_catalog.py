@@ -45,7 +45,7 @@ def args_parser():
     p.add_argument("--year", type=int, help="Run a single year")
     p.add_argument("--start-year", type=int, default=2016)
     p.add_argument("--end-year", type=int, default=2025)
-    p.add_argument("--bbox", nargs=4, type=float, default=[-78.47, -0.26, -78.32, -0.11],
+    p.add_argument("--bbox", nargs=4, type=float, default=[-78.47, -0.248, -78.32, -0.11],
                    metavar=("WEST", "SOUTH", "EAST", "NORTH"))
     p.add_argument("--resolution", type=float, default=10)
     p.add_argument("--tile-pixels", type=int, default=512)

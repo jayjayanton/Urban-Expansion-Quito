@@ -87,13 +87,19 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Verify the imports:
+Verify dependencies for **both** acquisition methods and the mosaicking workflow (run from the repository root):
 
-```bash
-python -c "import numpy, rasterio, dotenv, sentinelhub; print('Dependencies OK')"
+```powershell
+python -c "import numpy, rasterio, dotenv, sentinelhub, boto3, requests; print('Dependencies OK')"
 ```
 
-The `requirements.txt` file includes `numpy`, `rasterio`, `python-dotenv`, and `sentinelhub`. Python's built-in `os` and `pathlib` modules require no separate installation.
+Verify the relocated Python modules and the Evalscript path without downloading imagery or requiring real credentials:
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+The first command checks installed third-party packages; the second runs offline regression tests for acquisition and mosaicking. The primary workflow uses `sentinelhub`, while the S3 fallback uses `boto3` and `requests`. Install project dependencies with `python -m pip install -r requirements.txt`; if `requests` is missing, install it explicitly with `python -m pip install requests` (and add it to `requirements.txt`). Python's built-in `os`, `pathlib`, and `unittest` modules do not require separate installation.
 
 ### API credentials — primary and fallback are separate
 

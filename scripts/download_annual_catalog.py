@@ -8,6 +8,7 @@ Then: python scripts/download_annual_catalog.py --start-year 2016 --end-year 202
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import math
@@ -129,7 +130,8 @@ def local_asset(s3, href, cache):
     u = urlparse(href)
     if u.scheme != "s3":
         raise ValueError(f"Expected CDSE STAC S3 asset, received: {href}")
-    target = cache / u.netloc / u.path.lstrip("/")
+    digest = hashlib.sha256(href.encode("utf-8")).hexdigest()[:24]
+    target = cache / f"{digest}_{Path(u.path).name}"
     if target.is_file() and target.stat().st_size > 0:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)

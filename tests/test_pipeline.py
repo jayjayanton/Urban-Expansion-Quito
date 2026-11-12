@@ -71,6 +71,28 @@ class AcquisitionTests(unittest.TestCase):
                 self.assertEqual(ds.read(1, window=((0, 1), (0, 1)))[0, 0], 3)
                 self.assertEqual(ds.read(1, window=((999, 1000), (999, 1000)))[0, 0], 1)
 
+    def test_invalid_frequency_rejected(self):
+        with self.assertRaises(ValueError):
+            list(ac.periods(2016, "weekly"))
+
+    def test_non_leap_february(self):
+        monthly = list(ac.periods(2017, "monthly"))
+        self.assertEqual(monthly[1][2], date(2017, 2, 28))
+
+    def test_tile_transforms_do_not_overlap(self):
+        a = ac.tile_bbox(0, 0)
+        b = ac.tile_bbox(1, 0)
+        self.assertAlmostEqual(ac.tile_transform(a).c + 500 * 10,
+                               ac.tile_transform(b).c)
+        self.assertAlmostEqual(ac.tile_transform(a).e, -10)
+
+    def test_missing_file_is_not_valid(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertFalse(ac.valid_existing(
+                Path(folder) / "missing.tif",
+                date(2016, 1, 1), date(2016, 12, 31),
+                ac.tile_bbox(0, 0)))
+
     def test_mosaic_rejects_insufficient_tiles(self):
         with tempfile.TemporaryDirectory() as folder:
             with patch.object(mt, "ROOT", Path(folder)):

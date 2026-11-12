@@ -99,7 +99,7 @@ Verify the relocated Python modules and the Evalscript path without downloading 
 python -m unittest discover -s tests -v
 ```
 
-The first command checks installed third-party packages; the second runs offline regression tests for acquisition and mosaicking. The primary workflow uses `sentinelhub`, while the S3 fallback uses `boto3` and `requests`. Install project dependencies with `python -m pip install -r requirements.txt`; if `requests` is missing, install it explicitly with `python -m pip install requests` (and add it to `requirements.txt`). Python's built-in `os`, `pathlib`, and `unittest` modules do not require separate installation.
+The first command checks installed third-party packages; the second runs offline regression tests for acquisition and mosaicking. The primary workflow uses `sentinelhub`, while the S3 fallback uses `boto3` and `requests`. Install project dependencies with `python -m pip install -r requirements.txt`, which now explicitly includes `requests` alongside the other packages. Python's built-in `os`, `pathlib`, and `unittest` modules do not require separate installation.
 
 ### API credentials — primary and fallback are separate
 

@@ -29,6 +29,35 @@ Evalscript V3 requires `setup()` to define input bands and output format and `ev
 
 **Validation pending:** cloud/shadow masking, missing-data treatment, valid-observation counts, temporal consistency, and georeferencing. Annual composite examples are documented below; no validated urban-change model outputs are included yet.
 
+## Script organization
+
+The repository separates acquisition methods, spatial mosaicking, and the Sentinel Hub Evalscript:
+
+```text
+scripts/
+├── data_acquisition/
+│   ├── acquisition_common.py
+│   ├── download_annual.py
+│   ├── download_quarterly.py
+│   └── download_monthly.py
+├── data_acquisition_fallback/
+│   └── download_fallback.py
+├── mosaicing/
+│   └── mosaic_tiles.py
+└── evalscript/
+    └── median_composite.js
+```
+
+Run scripts from the repository root. Each moved Python module resolves the repository root two directory levels above its file. The primary acquisition engine loads `scripts/evalscript/median_composite.js` and the root `.env`. The fallback uses the separate CDSE S3 credentials documented below. Output raster paths have not changed.
+
+```powershell
+python scripts/data_acquisition/download_annual.py
+python scripts/data_acquisition/download_quarterly.py
+python scripts/data_acquisition/download_monthly.py
+python scripts/data_acquisition_fallback/download_fallback.py --year 2025 --max-scenes 12
+python scripts/mosaicing/mosaic_tiles.py --frequency annual --year 2025 --expected-tiles 12
+```
+
 ## Installation and dependencies
 
 Python 3.10 or newer is recommended. Clone the repository and open a terminal in its root directory:
@@ -116,20 +145,20 @@ The images are display-oriented PNG exports derived from the scientific multiban
 
 ## Step 2 — Acquisition frequency benchmark methodology
 
-The project now provides **three separate entrypoints** using one shared acquisition engine and the same cloud-screening/median Evalscript V3. The evalscript was renamed from `scripts/monthly_composite.js` to `scripts/median_composite.js` because it does **not** select dates. Python defines the temporal interval; the evalscript selects bands B02/B03/B04/B08/B11/B12, filters observations using SCL classes 4/5/6/7 and dataMask, and returns six per-band median reflectances plus a valid orbit-level observation count. It is not an arithmetic average or a single selected acquisition.
+The project now provides **three separate entrypoints** using one shared acquisition engine and the same cloud-screening/median Evalscript V3. The evalscript was renamed from `scripts/evalscript/monthly_composite.js` to `scripts/evalscript/median_composite.js` because it does **not** select dates. Python defines the temporal interval; the evalscript selects bands B02/B03/B04/B08/B11/B12, filters observations using SCL classes 4/5/6/7 and dataMask, and returns six per-band median reflectances plus a valid orbit-level observation count. It is not an arithmetic average or a single selected acquisition.
 
 ### Common benchmark geometry
 
-All three benchmark scripts use the same **5,000 m × 5,000 m square (25 km²)** centered near Tumbaco at longitude -78.41, latitude -0.22. The center is projected to **EPSG:32717** before constructing the exact metric square; the output is **500 × 500 pixels at 10 m**. This controlled tile is intentionally smaller than the broader Quito-valleys study AOI. Change `CENTER_LON_LAT` and `SIDE_METERS` in `scripts/acquisition_common.py` to adjust the benchmark. Full regional tiling and mosaicking are planned, not yet implemented.
+All three benchmark scripts use the same **5,000 m × 5,000 m square (25 km²)** centered near Tumbaco at longitude -78.41, latitude -0.22. The center is projected to **EPSG:32717** before constructing the exact metric square; the output is **500 × 500 pixels at 10 m**. This controlled tile is intentionally smaller than the broader Quito-valleys study AOI. Change `CENTER_LON_LAT` and `SIDE_METERS` in `scripts/data_acquisition/acquisition_common.py` to adjust the benchmark. Full regional tiling and mosaicking are planned, not yet implemented.
 
 ### Run each strategy
 
 From the repository root (after installing `requirements.txt` and configuring local OAuth credentials):
 
 ```powershell
-python scripts/download_annual.py
-python scripts/download_quarterly.py
-python scripts/download_monthly.py
+python scripts/data_acquisition/download_annual.py
+python scripts/data_acquisition/download_quarterly.py
+python scripts/data_acquisition/download_monthly.py
 ```
 
 | Strategy | Temporal request | Requests per year per tile | Output directory |
@@ -138,7 +167,7 @@ python scripts/download_monthly.py
 | Quarterly | Q1, Q2, Q3, Q4 | 4 | `data/benchmarks/quarterly/<year>/` |
 | Monthly | Calendar months | 12 | `data/benchmarks/monthly/<year>/` |
 
-The shared engine currently runs **2016 only** with `YEARS = [2016]`. The full historical loop is preserved as a commented line (`# YEARS = range(2016, 2026)`) in `scripts/acquisition_common.py`. To run all years after validating the 2016 benchmark, uncomment the full range and comment out the 2016-only line. Each output is saved separately, with the date interval, processing duration, valid-pixel coverage and evalscript SHA-256 in its metadata. Previously completed files are skipped only if the raster geometry and relevant processing metadata match. API throttling or processing limits can still occur, particularly for annual requests.
+The shared engine currently runs **2016 only** with `YEARS = [2016]`. The full historical loop is preserved as a commented line (`# YEARS = range(2016, 2026)`) in `scripts/data_acquisition/acquisition_common.py`. To run all years after validating the 2016 benchmark, uncomment the full range and comment out the 2016-only line. Each output is saved separately, with the date interval, processing duration, valid-pixel coverage and evalscript SHA-256 in its metadata. Previously completed files are skipped only if the raster geometry and relevant processing metadata match. API throttling or processing limits can still occur, particularly for annual requests.
 
 ### Benchmark interpretation and next stages
 
@@ -149,19 +178,19 @@ For training, align ESA WorldCover 2020/2021 to the Sentinel-2 10 m grid using n
 
 ## Step 3 — Spatial tiling and mosaicking (2016 pilot)
 
-The acquisition scripts now process **four adjacent 5 × 5 km tiles** in a 2 × 2 grid, covering **100 km²**. All tiles share the same EPSG:32717 projected 10 m grid. This tests whether smaller API requests are more reliable than a single large annual request. The tile origin is anchored at the original Tumbaco test location; the 2 × 2 pilot extends east and north of the original tile. Configure `GRID_COLS` and `GRID_ROWS` in `scripts/acquisition_common.py` to change the number of tiles. The default remains **2016 only**.
+The acquisition scripts now process **four adjacent 5 × 5 km tiles** in a 2 × 2 grid, covering **100 km²**. All tiles share the same EPSG:32717 projected 10 m grid. This tests whether smaller API requests are more reliable than a single large annual request. The tile origin is anchored at the original Tumbaco test location; the 2 × 2 pilot extends east and north of the original tile. Configure `GRID_COLS` and `GRID_ROWS` in `scripts/data_acquisition/acquisition_common.py` to change the number of tiles. The default remains **2016 only**.
 
-The three strategies produce four annual, sixteen quarterly, or forty-eight monthly tile files for the pilot. Downloads are stored under `data/benchmarks/<frequency>/2016/`, using a `tile_r##_c##` suffix. Once downloads finish, mosaic each period **spatially**, using the new `scripts/mosaic_tiles.py`:
+The three strategies produce four annual, sixteen quarterly, or forty-eight monthly tile files for the pilot. Downloads are stored under `data/benchmarks/<frequency>/2016/`, using a `tile_r##_c##` suffix. Once downloads finish, mosaic each period **spatially**, using the new `scripts/mosaicing/mosaic_tiles.py`:
 
 ```powershell
-python scripts/download_annual.py
-python scripts/mosaic_tiles.py --frequency annual --year 2016 --period annual
+python scripts/data_acquisition/download_annual.py
+python scripts/mosaicing/mosaic_tiles.py --frequency annual --year 2016 --period annual
 
-python scripts/download_quarterly.py
-python scripts/mosaic_tiles.py --frequency quarterly --year 2016 --period Q1
+python scripts/data_acquisition/download_quarterly.py
+python scripts/mosaicing/mosaic_tiles.py --frequency quarterly --year 2016 --period Q1
 
-python scripts/download_monthly.py
-python scripts/mosaic_tiles.py --frequency monthly --year 2016 --period 01
+python scripts/data_acquisition/download_monthly.py
+python scripts/mosaicing/mosaic_tiles.py --frequency monthly --year 2016 --period 01
 ```
 
 Repeat the mosaic command for Q2–Q4 and months 02–12 as needed. The script requires at least two tiles and verifies band count, resolution, CRS, and band descriptions. **Important:** it currently mosaics whatever matching tiles exist; before treating an output as complete, verify that all four expected tiles were downloaded. It does not yet aggregate monthly or quarterly mosaics into annual rasters. Spatial mosaicking joins neighboring places; temporal aggregation combines different dates for the same place. The annual composite method and monthly/quarterly methods are not mathematically identical.
@@ -173,7 +202,7 @@ Repeat the mosaic command for Q2–Q4 and months 02–12 as needed. The script r
 
 ### Motivation and scope
 
-The primary acquisition route is the Sentinel Hub Process API, which executes the project's Evalscript server-side. When that route is unavailable or impractical because of processing-unit limits or service restrictions, `scripts/download_fallback.py` provides an independent **annual** acquisition route using the Copernicus Data Space STAC catalogue and authenticated S3 object storage. This is not an automatic retry for invalid credentials or malformed API requests. The fallback does not consume Sentinel Hub processing units, but it downloads large source files and requires local processing.
+The primary acquisition route is the Sentinel Hub Process API, which executes the project's Evalscript server-side. When that route is unavailable or impractical because of processing-unit limits or service restrictions, `scripts/data_acquisition_fallback/download_fallback.py` provides an independent **annual** acquisition route using the Copernicus Data Space STAC catalogue and authenticated S3 object storage. This is not an automatic retry for invalid credentials or malformed API requests. The fallback does not consume Sentinel Hub processing units, but it downloads large source files and requires local processing.
 
 ### Reproducible acquisition method
 
@@ -182,20 +211,20 @@ The primary acquisition route is the Sentinel Hub Process API, which executes th
 3. For each selected acquisition, retrieve B02, B03, B04 and B08 (native 10 m), B11 and B12 (native 20 m), and the Scene Classification Layer SCL (20 m) from S3 as JP2 assets. Source assets are cached by URL-derived hash and reused across output tiles. The default cache is removed after each year unless `--keep-cache` is supplied.
 4. Reproject and resample bands onto a common 10 m EPSG:32717 grid. Spectral bands use bilinear interpolation except B11/B12, which use nearest-neighbor; SCL uses nearest-neighbor to preserve categorical values. The script applies a simplified processing-baseline-dependent reflectance offset, which **requires validation against product metadata**.
 5. Retain pixels whose SCL class is 4 (vegetation), 5 (non-vegetated), 6 (water), or 7 (unclassified), subject to valid spectral data. Class 7 is not guaranteed cloud-free and should be evaluated during quality assessment. Compute a per-band median across selected valid acquisitions and record `valid_count` as the seventh band. Zero counts denote no usable observation, while missing spectral values are written as -9999.
-6. Write tiled GeoTIFFs named `data/<year>/tiles/sentinel2_<year>_r<row>_c<col>.tif`, then combine them spatially with `scripts/mosaic_tiles.py`. Mosaicking does not perform additional temporal aggregation.
+6. Write tiled GeoTIFFs named `data/<year>/tiles/sentinel2_<year>_r<row>_c<col>.tif`, then combine them spatially with `scripts/mosaicing/mosaic_tiles.py`. Mosaicking does not perform additional temporal aggregation.
 
 ### Observed 2025 pilot
 
-The run `python scripts/download_fallback.py --year 2025 --max-scenes 12` uses the current script's default bounding box `[-78.47, -0.248, -78.32, -0.11]` and 10 m resolution. The catalogue returned **91 candidate scenes**, of which **12** were selected across 2025. Each acquisition requires seven JP2 assets, giving **84 distinct source files** for the observed single-granule selection, shared by **12 output tiles** in a 3-row × 4-column grid. The projected output extent was **1,672 × 1,528 pixels**. In the observed run, initial downloading and processing of tile r0 c0 took about 28 minutes; subsequent cached tiles completed much faster. These are observed timings, not general performance guarantees. The number of cached files can be higher when multiple source granules are needed.
+The run `python scripts/data_acquisition_fallback/download_fallback.py --year 2025 --max-scenes 12` uses the current script's default bounding box `[-78.47, -0.248, -78.32, -0.11]` and 10 m resolution. The catalogue returned **91 candidate scenes**, of which **12** were selected across 2025. Each acquisition requires seven JP2 assets, giving **84 distinct source files** for the observed single-granule selection, shared by **12 output tiles** in a 3-row × 4-column grid. The projected output extent was **1,672 × 1,528 pixels**. In the observed run, initial downloading and processing of tile r0 c0 took about 28 minutes; subsequent cached tiles completed much faster. These are observed timings, not general performance guarantees. The number of cached files can be higher when multiple source granules are needed.
 
 ### Usage
 
 Install dependencies with `python -m pip install -r requirements.txt` and configure `CDSE_S3_ACCESS_KEY` and `CDSE_S3_SECRET_KEY` in the local, untracked `.env` file. These are distinct from Sentinel Hub OAuth credentials.
 
 ```powershell
-python scripts/download_fallback.py --year 2025 --dry-run --max-scenes 12
-python scripts/download_fallback.py --year 2025 --max-scenes 12
-python scripts/mosaic_tiles.py --frequency annual --year 2025 --expected-tiles 12
+python scripts/data_acquisition_fallback/download_fallback.py --year 2025 --dry-run --max-scenes 12
+python scripts/data_acquisition_fallback/download_fallback.py --year 2025 --max-scenes 12
+python scripts/mosaicing/mosaic_tiles.py --frequency annual --year 2025 --expected-tiles 12
 ```
 
 **Important:** Existing output tiles are skipped based on geometry, band count, and CRS, not the selected scene IDs. If `--max-scenes`, selection rules, or processing parameters change, remove or version the affected outputs before rerunning; otherwise stale tiles may be mistaken for current results. The local JP2 cache is reusable only while retained.

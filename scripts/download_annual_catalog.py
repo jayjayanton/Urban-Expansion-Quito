@@ -226,8 +226,11 @@ def local_asset(s3, href, cache):
         raise ValueError(f"Expected CDSE STAC S3 asset, received: {href}")
     digest = hashlib.sha256(href.encode("utf-8")).hexdigest()[:24]
     target = cache / f"{digest}_{Path(u.path).name}"
+
     if target.is_file() and target.stat().st_size > 0:
+        LOG.info("CACHE HIT: %s", target.name)
         return target
+    
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_name(target.name + ".partial")
     LOG.info("Downloading %s", href)
@@ -389,10 +392,25 @@ def main():
                                 continue
                     except rasterio.RasterioError:
                         pass
-                LOG.info("PROCESS %s tile r%s c%s", year, r, c)
+
+                tile_number = r * cols + c + 1
+                total_tiles = rows * cols
+
+                LOG.info(
+                    "START TILE %d/%d | Year %s | r%d c%d",
+                    tile_number, total_tiles, year, r, c
+                )
+
                 observations = []
                 failures = []
-                for item in items:
+
+                for scene_idx, item in enumerate(items, start=1):
+                    LOG.info(
+                        "  TILE r%d c%d | Scene %d/%d | %s",
+                        r, c,
+                        scene_idx, len(items),
+                        item.get("properties", {}).get("datetime")
+                    )
                     try:
                         data = scene_tile(s3, item, args.cache, tile_transform, tw, th)
                         if data is not None:
@@ -415,7 +433,14 @@ def main():
                 with np.errstate(all="ignore"):
                     composite = np.nanmedian(stack, axis=0)
                 write_tile(out, composite, counts, tile_transform, year, len(items))
-                LOG.info("WROTE %s; max valid_count=%s", out, int(counts.max()))
+                LOG.info(
+                    "FINISHED TILE %d/%d | r%d c%d | max valid_count=%d",
+                    tile_number, total_tiles,
+                    r, c, int(counts.max())
+                )
+
+                LOG.info("WROTE %s", out)
+
                 del stack, composite, observations
         # Remove temporary source JP2s after the year unless --keep-cache.
         if not args.keep_cache:

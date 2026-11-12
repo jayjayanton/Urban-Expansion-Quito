@@ -11,7 +11,8 @@ import numpy as np
 import rasterio
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "scripts" / "data_acquisition"))
+sys.path.insert(0, str(ROOT / "scripts" / "mosaicing"))
 os.environ.setdefault("SH_CLIENT_ID", "offline-test-client")
 os.environ.setdefault("SH_CLIENT_SECRET", "offline-test-secret")
 
@@ -44,16 +45,16 @@ class AcquisitionTests(unittest.TestCase):
         self.assertAlmostEqual(a.max_y - a.min_y, 5000)
         self.assertEqual(ac.tile_transform(a).a, 10)
 
-    def test_mosaic_four_synthetic_tiles(self):
+    def test_mosaic_four_synthetic_quarterly_tiles(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            source = root / "data" / "benchmarks" / "annual" / "2016"
+            source = root / "data" / "benchmarks" / "quarterly" / "2016"
             source.mkdir(parents=True)
             for row in range(2):
                 for col in range(2):
                     tile = ac.tile_bbox(col, row)
                     value = float(1 + row * 2 + col)
-                    path = source / f"sentinel2_2016_annual_tile_r{row:02d}_c{col:02d}.tif"
+                    path = source / f"sentinel2_2016_Q1_tile_r{row:02d}_c{col:02d}.tif"
                     with rasterio.open(
                         path, "w", driver="GTiff", height=500, width=500,
                         count=7, dtype="float32", crs="EPSG:32717",
@@ -63,13 +64,50 @@ class AcquisitionTests(unittest.TestCase):
                             dst.write(np.full((500, 500), value, dtype="float32"), band)
                             dst.set_band_description(band, ac.BANDS[band - 1])
             with patch.object(mt, "ROOT", root):
-                mt.mosaic("annual", 2016, "annual")
-            result = root / "data" / "mosaics" / "annual" / "2016" / "sentinel2_2016_annual_mosaic.tif"
+                mt.mosaic("quarterly", 2016, "Q1")
+            result = root / "data" / "mosaics" / "quarterly" / "2016" / "sentinel2_2016_Q1_mosaic.tif"
             with rasterio.open(result) as ds:
                 self.assertEqual((ds.width, ds.height, ds.count), (1000, 1000, 7))
                 self.assertEqual(ds.crs.to_epsg(), 32717)
                 self.assertEqual(ds.read(1, window=((0, 1), (0, 1)))[0, 0], 3)
                 self.assertEqual(ds.read(1, window=((999, 1000), (999, 1000)))[0, 0], 2)
+
+    def test_fallback_annual_mosaic_twelve_tiles(self):
+        """Verify the current fallback r{row}_c{col} convention."""
+        from rasterio.transform import from_origin
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "data" / "2025" / "tiles"
+            source.mkdir(parents=True)
+
+            for row in range(3):
+                for col in range(4):
+                    value = float(1 + row * 4 + col)
+                    path = source / f"sentinel2_2025_r{row}_c{col}.tif"
+                    transform = from_origin(
+                        500000 + col * 320,
+                        9980000 - row * 320,
+                        10, 10
+                    )
+                    with rasterio.open(
+                        path, "w", driver="GTiff", height=32, width=32,
+                        count=7, dtype="float32", crs="EPSG:32717",
+                        transform=transform, nodata=-9999
+                    ) as dst:
+                        for band in range(1, 8):
+                            dst.write(np.full((32, 32), value, dtype="float32"), band)
+                            dst.set_band_description(band, ac.BANDS[band - 1])
+
+            with patch.object(mt, "ROOT", root):
+                mt.mosaic("annual", 2025, expected_tiles=12)
+
+            output = root / "data" / "mosaics" / "annual" / "sentinel2_2025_annual.tif"
+            with rasterio.open(output) as ds:
+                self.assertEqual((ds.width, ds.height, ds.count), (128, 96, 7))
+                self.assertEqual(ds.crs.to_epsg(), 32717)
+                self.assertEqual(ds.read(1)[0, 0], 1)
+                self.assertEqual(ds.read(1)[-1, -1], 12)
 
     def test_invalid_frequency_rejected(self):
         with self.assertRaises(ValueError):
@@ -97,7 +135,7 @@ class AcquisitionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             with patch.object(mt, "ROOT", Path(folder)):
                 with self.assertRaises(ValueError):
-                    mt.mosaic("annual", 2016, "annual")
+                    mt.mosaic("quarterly", 2016, "Q1")
 
 
 if __name__ == "__main__":

@@ -72,7 +72,7 @@ BANDS = [
 # ----------------------------------
 
 evalscript_path = (
-    PROJECT_ROOT / "scripts" / "monthly_composite.js"
+    PROJECT_ROOT / "scripts" / "median_composite.js"
 )
 
 if not evalscript_path.is_file():
@@ -151,7 +151,7 @@ def is_valid_geotiff(path):
         return False
 
 # ----------------------------------
-# 5. DOWNLOAD ONE MONTH
+# 5. DOWNLOAD ONE YEAR
 # ----------------------------------
 
 def download_year(year):
@@ -298,7 +298,7 @@ def download_year(year):
     return "downloaded"
 
 # ----------------------------------
-# 6. PROCESS ALL YEARS AND MONTHS
+# 6. PROCESS ALL YEARS
 # ----------------------------------
 
 results = {

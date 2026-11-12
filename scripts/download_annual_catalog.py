@@ -240,8 +240,10 @@ def main():
             LOG.warning("No L2A products found for %s; early 2016 L2A coverage may be limited", year)
             continue
         year_dir = args.output / str(year) / "tiles"
+        metadata_dir = args.output / "metadata" / str(year)
         year_dir.mkdir(parents=True, exist_ok=True)
-        (year_dir / "catalogue_manifest.json").write_text(json.dumps([
+        metadata_dir.mkdir(parents=True, exist_ok=True)
+        (metadata_dir / "catalogue_manifest.json").write_text(json.dumps([
             {"id": x["id"], "datetime": x.get("properties", {}).get("datetime"),
              "cloud": x.get("properties", {}).get("eo:cloud_cover")} for x in items], indent=2))
         if args.dry_run:
@@ -274,7 +276,7 @@ def main():
                         failures.append((item["id"], str(exc)))
                         LOG.error("Scene failed %s: %s", item["id"], exc)
                 if failures:
-                    (year_dir / f"failures_r{r}_c{c}.json").write_text(json.dumps(failures, indent=2))
+                    (metadata_dir / f"failures_r{r}_c{c}.json").write_text(json.dumps(failures, indent=2))
                     LOG.error("Not writing incomplete tile %s (%s scene errors)", out, len(failures))
                     continue
                 if not observations:

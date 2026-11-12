@@ -89,6 +89,16 @@ CDSE_S3_SECRET_KEY=your_cdse_s3_secret_key
 
 Never commit `.env`, real keys, or secrets. Ensure `.env` is excluded by `.gitignore`; keep large rasters and local ArcGIS Pro workspace files out of version control. Run scripts from the repository root and keep scientific GeoTIFF outputs local.
 
+## Study AOI and spatial processing conventions
+
+The **target common processing AOI** for future comparisons between the Sentinel Hub Process API (primary) and CDSE STAC + S3 (fallback) is the WGS84 longitude/latitude bounding box **west -78.47, south -0.248, east -78.32, north -0.11** (EPSG:4326). Both workflows should project to **EPSG:32717 (UTM zone 17S)** and produce **10 m pixels** on the **same snapped grid**, with matching bounds, transform, dimensions, band order, masking, and temporal windows before quantitative comparisons. The observed fallback run used a **1,672 × 1,528 pixel** grid divided into **3 rows × 4 columns** of up to 512 × 512 pixels. The seven output bands are B02, B03, B04, B08, B11, B12 and valid_count.
+
+**Scope caveat:** The existing Sentinel Hub benchmarks do **not yet use this AOI**: they began with a 5 km × 5 km Tumbaco tile and a four-tile (2 × 2) pilot. The common bounding box is a target for future harmonized runs, not a claim that past benchmark results share the fallback extent. It is also a current processing AOI, **not** a finalized boundary for every planned eastern-valley study area (including Guayllabamba). Confirm the final study footprint before regional conclusions.
+
+### Why fallback outputs spatial tiles
+
+S3 exposes source Sentinel-2 JP2 assets; it does not run this project's cloud-screening, reprojection, annual temporal median, and custom output mosaic on the server. The fallback script therefore performs these steps locally and **intentionally processes the AOI in spatial tiles** to bound memory use, permit per-tile retries, and reuse cached source JP2 bands. Tiling is an implementation choice, not an S3 requirement. The separate `mosaic_tiles.py` joins adjacent processed tiles **spatially** into a continuous annual GeoTIFF; it does not combine dates or recalculate the annual median. The Sentinel Hub Process API instead performs the requested processing remotely and can return an AOI-sized output, subject to service limits. A single local full-AOI output would also be possible, but would reduce the current per-tile restart flexibility.
+
 ## Step 1 — Sentinel-2 annual composite examples (2016 vs 2025)
 
 The first reproducible acquisition milestone is to retrieve Sentinel-2 Level-2A observations for a small test AOI near Tumbaco, screen observations using the Scene Classification Layer (SCL), and calculate **per-band annual median surface reflectance** with a custom Sentinel Hub Evalscript. Python saves six reflectance bands (B02, B03, B04, B08, B11, B12) plus a valid-observation-count band in a GeoTIFF.

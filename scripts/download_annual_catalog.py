@@ -41,6 +41,10 @@ DATA_DIR = PROJECT_ROOT / "data"
 
 
 def args_parser():
+    """Read CLI options. Paths default to the repository's data/ folder.
+
+    --max-scenes limits input acquisitions for testing, not output tiles.
+    """
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--year", type=int, help="Run a single year")
     p.add_argument("--start-year", type=int, default=2016)
@@ -59,7 +63,9 @@ def args_parser():
     return p.parse_args()
 
 
+# STAGE 1: SEARCH THE COPERNICUS STAC CATALOGUE
 def request_json(session, method, url, **kwargs):
+    """Request catalogue metadata; retry transient HTTP failures."""
     for attempt in range(5):
         try:
             r = session.request(method, url, timeout=90, **kwargs)
@@ -78,6 +84,11 @@ def request_json(session, method, url, **kwargs):
 
 
 def search_items(session, year, bbox, max_cloud):
+    """Find all L2A acquisitions intersecting our AOI in one year.
+
+    STAC returns metadata and band URLs, not the actual raster pixels.
+    Catalogue results are paginated, so follow 'next' links.
+    """
     payload = {"collections": ["sentinel-2-l2a"],
                "bbox": list(bbox),
                "datetime": f"{year}-01-01T00:00:00Z/{year}-12-31T23:59:59Z",
@@ -105,6 +116,10 @@ def search_items(session, year, bbox, max_cloud):
 
 
 def asset_for(item, band):
+    """Find a band URL in one scene's STAC metadata.
+
+    Visible/NIR bands are 10 m; B11, B12 and SCL are 20 m.
+    """
     assets = item.get("assets", {})
     preferred = (f"{band}_10m", band) if band in ("B02", "B03", "B04", "B08") else (f"{band}_20m", band)
     if band == "SCL":
@@ -119,7 +134,9 @@ def asset_for(item, band):
     raise KeyError(f"Missing {band} in {item['id']}; available keys: {list(assets)}")
 
 
+# STAGE 2: DOWNLOAD JP2 SOURCE BANDS THROUGH S3
 def s3_client():
+    """Authenticate to Copernicus object storage using .env credentials."""
     access = os.getenv("CDSE_S3_ACCESS_KEY")
     secret = os.getenv("CDSE_S3_SECRET_KEY")
     if not access or not secret:
@@ -130,6 +147,13 @@ def s3_client():
 
 
 def local_asset(s3, href, cache):
+    """Download one JP2 band, or reuse it if already cached.
+
+    The same scene can cover many output tiles. Caching prevents repeated
+    network downloads. Hashing the full S3 URL gives a short, unique local
+    filename (important for Windows path limits). A .partial file prevents
+    an interrupted transfer being mistaken for a complete source image.
+    """
     u = urlparse(href)
     if u.scheme != "s3":
         raise ValueError(f"Expected CDSE STAC S3 asset, received: {href}")
@@ -148,7 +172,12 @@ def local_asset(s3, href, cache):
     return target
 
 
+# STAGE 3: DEFINE THE COMMON SPATIAL GRID
 def grid_for_bbox(bbox, resolution):
+    """Convert geographic AOI to UTM 17S and snap edges to 10 m pixels.
+
+    All years must use the same grid for pixel-by-pixel change detection.
+    """
     xmin, ymin, xmax, ymax = transform_bounds("EPSG:4326", "EPSG:32717", *bbox, densify_pts=21)
     xmin = math.floor(xmin / resolution) * resolution
     ymin = math.floor(ymin / resolution) * resolution
@@ -159,13 +188,26 @@ def grid_for_bbox(bbox, resolution):
     return from_origin(xmin, ymax, resolution, resolution), width, height
 
 
+# STAGE 4: ALIGN BANDS, MASK CLOUDS, AND NORMALIZE REFLECTANCE
 def scene_tile(s3, item, cache, tile_transform, width, height):
+    """Process one acquisition for one output tile.
+
+    Returns a NumPy array shaped (6 bands, tile rows, tile columns).
+    SCL is resampled with nearest-neighbor because it contains classes;
+    spectral bands are aligned to the common output grid. Disallowed SCL
+    pixels become NaN, which the annual median calculation later ignores.
+
+    NOTE: The baseline-dependent reflectance offset is a simplified
+    correction and should be validated against source product metadata.
+    """
     paths = {band: local_asset(s3, asset_for(item, band), cache) for band in (*BANDS, "SCL")}
     scl = np.zeros((height, width), dtype=np.uint8)
     with rasterio.open(paths["SCL"]) as src:
         reproject(source=rasterio.band(src, 1), destination=scl, src_transform=src.transform,
                   src_crs=src.crs, src_nodata=src.nodata, dst_transform=tile_transform,
                   dst_crs="EPSG:32717", dst_nodata=0, resampling=Resampling.nearest)
+    # SCL classes: 4 vegetation, 5 bare/nonvegetated, 6 water, 7 unclassified.
+    # Exclude clouds and shadows from the temporal median.
     valid = np.isin(scl, SCL_ALLOWED)
     if not valid.any():
         return None
@@ -199,7 +241,12 @@ def scene_tile(s3, item, cache, tile_transform, width, height):
     return np.stack(arrays, axis=0)
 
 
+# STAGE 5: SAVE ANNUAL COMPOSITES AS GEOTIFFS
 def write_tile(path, composite, counts, transform, year, scenes):
+    """Write six median-reflectance bands plus valid_count as band seven.
+
+    Write to a temporary TIFF before renaming, avoiding incomplete outputs.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     partial = path.with_name(path.stem + ".partial.tif")
     profile = dict(driver="GTiff", height=counts.shape[0], width=counts.shape[1],
@@ -217,7 +264,9 @@ def write_tile(path, composite, counts, transform, year, scenes):
     partial.replace(path)
 
 
+# STAGE 6: ORCHESTRATE THE YEAR / ROW / COLUMN LOOPS
 def main():
+    """Run catalogue search, acquisition, tile compositing, and export."""
     load_dotenv()
     args = args_parser()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -233,6 +282,8 @@ def main():
     for year in years:
         LOG.info("Searching Sentinel-2 L2A catalogue for %s", year)
         items = search_items(session, year, args.bbox, args.max_cloud)
+        # Testing: use only the earliest N catalogue products. Existing test
+        # TIFFs must be deleted before full-year processing (skip is structural).
         if args.max_scenes is not None:
             items = items[:args.max_scenes]
         LOG.info("%s: %s candidate scenes", year, len(items))
@@ -248,6 +299,8 @@ def main():
              "cloud": x.get("properties", {}).get("eo:cloud_cover")} for x in items], indent=2))
         if args.dry_run:
             continue
+        # Each (row, column) identifies one geographic output tile.
+        # Source JP2 files are cached and reused for the remaining tiles.
         for r in range(rows):
             for c in range(cols):
                 window = Window(c * args.tile_pixels, r * args.tile_pixels,
@@ -282,13 +335,17 @@ def main():
                 if not observations:
                     LOG.warning("No valid observations for tile %s", out)
                     continue
+                # Shape: (scenes, six bands, tile height, tile width).
+                # axis=0 is time; the median collapses acquisitions, not space.
                 stack = np.stack(observations, axis=0)
+                # Count valid observations for each pixel (output band 7).
                 counts = np.isfinite(stack[:, 0]).sum(axis=0).astype(np.uint16)
                 with np.errstate(all="ignore"):
                     composite = np.nanmedian(stack, axis=0)
                 write_tile(out, composite, counts, tile_transform, year, len(items))
                 LOG.info("WROTE %s; max valid_count=%s", out, int(counts.max()))
                 del stack, composite, observations
+        # Remove temporary source JP2s after the year unless --keep-cache.
         if not args.keep_cache:
             shutil.rmtree(args.cache, ignore_errors=True)
     LOG.info("Finished")

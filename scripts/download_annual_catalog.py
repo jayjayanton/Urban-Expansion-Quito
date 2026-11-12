@@ -36,6 +36,8 @@ S3_ENDPOINT = "https://eodata.dataspace.copernicus.eu"
 BANDS = ("B02", "B03", "B04", "B08", "B11", "B12")
 SCL_ALLOWED = (4, 5, 6, 7)
 NODATA = -9999.0
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = PROJECT_ROOT / "data"
 
 
 def args_parser():
@@ -49,8 +51,9 @@ def args_parser():
     p.add_argument("--tile-pixels", type=int, default=512)
     p.add_argument("--max-cloud", type=float, default=100)
     p.add_argument("--max-scenes", type=int, default=None, help="TEST ONLY: cap number of STAC items")
-    p.add_argument("--output", type=Path, default=Path("data"))
-    p.add_argument("--cache", type=Path, default=Path("data/.cdse_cache"))
+    p.add_argument("--output", type=Path, default=DATA_DIR)
+    p.add_argument("--cache", type=Path, default=DATA_DIR / ".cdse_cache")
+
     p.add_argument("--keep-cache", action="store_true")
     p.add_argument("--dry-run", action="store_true", help="Catalogue only; no S3 credentials needed")
     return p.parse_args()

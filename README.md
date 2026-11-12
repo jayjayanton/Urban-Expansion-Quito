@@ -118,7 +118,7 @@ python scripts/download_monthly.py
 | Quarterly | Q1, Q2, Q3, Q4 | 4 | `data/benchmarks/quarterly/<year>/` |
 | Monthly | Calendar months | 12 | `data/benchmarks/monthly/<year>/` |
 
-The shared engine currently defaults to `YEARS = range(2016, 2026)`; for an inexpensive first test, temporarily set `YEARS = [2021]`. Each output is saved separately, with the date interval, processing duration, valid-pixel coverage and evalscript SHA-256 in its metadata. Previously completed files are skipped only if the raster geometry and relevant processing metadata match. API throttling or processing limits can still occur, particularly for annual requests.
+The shared engine currently runs **2016 only** with `YEARS = [2016]`. The full historical loop is preserved as a commented line (`# YEARS = range(2016, 2026)`) in `scripts/acquisition_common.py`. To run all years after validating the 2016 benchmark, uncomment the full range and comment out the 2016-only line. Each output is saved separately, with the date interval, processing duration, valid-pixel coverage and evalscript SHA-256 in its metadata. Previously completed files are skipped only if the raster geometry and relevant processing metadata match. API throttling or processing limits can still occur, particularly for annual requests.
 
 ### Benchmark interpretation and next stages
 

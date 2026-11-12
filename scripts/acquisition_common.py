@@ -19,6 +19,8 @@ EVALSCRIPT_HASH = hashlib.sha256(EVALSCRIPT.encode("utf-8")).hexdigest()
 BANDS = ("B02", "B03", "B04", "B08", "B11", "B12", "valid_count")
 RESOLUTION = 10
 SIDE_METERS = 5000
+GRID_COLS = 2
+GRID_ROWS = 2
 # Same original test location near Tumbaco, centered in WGS84.
 CENTER_LON_LAT = (-78.41, -0.22)
 # Full historical run (uncomment after validating the 2016 benchmark):
@@ -47,7 +49,14 @@ center = BBox(
 ).transform(CRS.UTM_17S)
 x, y = center.min_x, center.min_y
 half = SIDE_METERS / 2
-bbox = BBox((x-half, y-half, x+half, y+half), crs=CRS.UTM_17S)
+origin_x, origin_y = x - half, y - half
+
+def tile_bbox(col, row):
+    left = origin_x + col * SIDE_METERS
+    bottom = origin_y + row * SIDE_METERS
+    return BBox((left, bottom, left + SIDE_METERS, bottom + SIDE_METERS), crs=CRS.UTM_17S)
+
+bbox = tile_bbox(0, 0)
 width = height = SIDE_METERS // RESOLUTION
 transform = from_bounds(bbox.min_x, bbox.min_y, bbox.max_x, bbox.max_y, width, height)
 crs = rasterio.crs.CRS.from_epsg(32717)
@@ -71,7 +80,7 @@ def periods(year, frequency):
         raise ValueError("frequency must be annual, quarterly, or monthly")
 
 
-def valid_existing(path, start, end):
+def valid_existing(path, start, end, tile):
     if not path.is_file():
         return False
     try:
@@ -79,7 +88,7 @@ def valid_existing(path, start, end):
             tags = src.tags()
             return (
                 src.count == 7 and src.width == width and src.height == height
-                and src.crs == crs and src.transform.almost_equals(transform)
+                and src.crs == crs and src.transform.almost_equals(tile_transform(tile))
                 and src.descriptions == BANDS
                 and tags.get("evalscript_sha256") == EVALSCRIPT_HASH
                 and tags.get("start_date") == start.isoformat()
@@ -90,11 +99,17 @@ def valid_existing(path, start, end):
         return False
 
 
-def download_period(year, frequency, period, start, end):
+def tile_transform(tile):
+    return from_bounds(tile.min_x, tile.min_y, tile.max_x, tile.max_y, width, height)
+
+
+def download_period(year, frequency, period, start, end, col, row):
     out_dir = ROOT / "data" / "benchmarks" / frequency / str(year)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"sentinel2_{year}_{period}_tile01.tif"
-    if valid_existing(out, start, end):
+    tile_id = f"tile_r{row:02d}_c{col:02d}"
+    tile = tile_bbox(col, row)
+    out = out_dir / f"sentinel2_{year}_{period}_{tile_id}.tif"
+    if valid_existing(out, start, end, tile):
         print(f"SKIPPED {out.name}")
         return "skipped"
 
@@ -106,7 +121,7 @@ def download_period(year, frequency, period, start, end):
             mosaicking_order="leastCC",
         )],
         responses=[SentinelHubRequest.output_response("default", MimeType.TIFF)],
-        bbox=bbox, size=(width, height), config=config,
+        bbox=tile, size=(width, height), config=config,
     )
     print(f"REQUEST {frequency} {year} {period}: {start} to {end}", flush=True)
     started = time.monotonic()
@@ -127,20 +142,20 @@ def download_period(year, frequency, period, start, end):
         with rasterio.open(
             temp, "w", driver="GTiff", width=width, height=height,
             count=len(BANDS), dtype="float32", crs=crs,
-            transform=transform, compress="deflate", nodata=-9999,
+            transform=tile_transform(tile), compress="deflate", nodata=-9999,
         ) as dst:
             for i, band in enumerate(BANDS):
                 dst.write(data[:, :, i], i + 1)
                 dst.set_band_description(i + 1, band)
             dst.update_tags(
-                year=str(year), frequency=frequency, period=period,
+                year=str(year), frequency=frequency, period=period, tile_id=tile_id,
                 start_date=start.isoformat(), end_date=end.isoformat(),
                 evalscript_sha256=EVALSCRIPT_HASH,
                 valid_coverage_pct=f"{coverage:.4f}",
                 api_seconds=f"{elapsed:.2f}",
                 note="Band 7 is valid observation count; zero means no observations.",
             )
-        if not valid_existing(temp, start, end):
+        if not valid_existing(temp, start, end, tile):
             raise ValueError("Written GeoTIFF failed validation")
         temp.replace(out)
     finally:
@@ -153,14 +168,16 @@ def run(frequency):
     results = {"downloaded": 0, "skipped": 0, "no_data": 0, "failed": 0}
     for year in YEARS:
         for period, start, end in periods(year, frequency):
+          for row in range(GRID_ROWS):
+           for col in range(GRID_COLS):
             try:
-                status = download_period(year, frequency, period, start, end)
+                status = download_period(year, frequency, period, start, end, col, row)
                 results[status] += 1
                 if status == "downloaded":
                     time.sleep(PAUSE_SECONDS)
             except Exception as exc:
                 results["failed"] += 1
-                print(f"FAILED {year} {period}: {type(exc).__name__}: {exc}")
+                print(f"FAILED {year} {period} tile r{row} c{col}: {type(exc).__name__}: {exc}")
     print(f"{frequency.upper()} summary: {results}")
 
 

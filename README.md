@@ -13,6 +13,8 @@ Nayón, Cumbayá, Tumbaco, Puembo (Pifo excluded)
 ## Status
 Annual Sentinel-2 composites are available for the Tumbaco pilot. A runnable two-date CNN now supports supervised training, held-out evaluation and GeoTIFF inference. Its end-to-end example uses synthetic labels. Quito reference labeling and accuracy assessment are pending.
 
+[Read the CNN methodology and see the synthetic segmentation example](docs/CNN_METHODOLOGY.md)
+
 ## Start the two-date change detector
 
 The default inputs are the tracked `data/2016/sentinel2_2016.tif` and `data/2025/sentinel2_2025.tif`. Both cover the same 223-column by 221-row pilot grid. The model uses six reflectance bands per date and checks both observation counts. Its target is a transition from non-built to built-up between the two annual composites.

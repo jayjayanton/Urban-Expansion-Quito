@@ -8,10 +8,39 @@ Nayón, Cumbayá, Tumbaco, Puembo (Pifo excluded)
 - Cloud masking and composites
 - NDVI/NDBI analysis
 - Historical land-cover and urban expansion
-- Future PyTorch CNN investigation
+- Paired Sentinel-2 built-up gain segmentation with PyTorch
 
 ## Status
-Phase 1: Annual Sentinel-2 composite acquisition demonstrated for the Tumbaco test AOI. Quality assessment and urban-change validation remain pending.
+Annual Sentinel-2 composites are available for the Tumbaco pilot. A runnable two-date CNN now supports supervised training, held-out evaluation and GeoTIFF inference. Its end-to-end example uses synthetic labels. Quito reference labeling and accuracy assessment are pending.
+
+[Read the CNN methodology and see the synthetic segmentation example](docs/CNN_METHODOLOGY.md)
+
+## Start the two-date change detector
+
+The default inputs are the tracked `data/2016/sentinel2_2016.tif` and `data/2025/sentinel2_2025.tif`. Both cover the same 223-column by 221-row pilot grid. The model uses six reflectance bands per date and checks both observation counts. Its target is a transition from non-built to built-up between the two annual composites.
+
+[Download the illustrated PDF tutorial](docs/Quito_Sentinel2_Change_Detection_Tutorial.pdf) for input checks, a QGIS labeling exercise, model internals, spatial splits, evaluation and future experiments.
+
+From the repository root, in an activated Python environment:
+
+```bash
+python -m pip install -r requirements-vision.txt
+python -m scripts.vision inspect
+python -m scripts.vision.demo data/cv/demo01
+```
+
+The demo writes invented inputs, a trained checkpoint, held-out metrics and two maps under the new directory. All model commands run on CPU by default. For real training, create an aligned label template, annotate the two endpoint dates as described in the tutorial, then inspect the reviewed class counts before fitting:
+
+```bash
+python -m scripts.vision init-labels --labels data/cv/gain.tif
+# Fill the template with independently reviewed 1=gain, 0=no gain; keep 255=unknown.
+python -m scripts.vision inspect --labels data/cv/gain.tif
+python -m scripts.vision train --labels data/cv/gain.tif --out data/cv/run01
+python -m scripts.vision evaluate --labels data/cv/gain.tif --checkpoint data/cv/run01/best.pt
+python -m scripts.vision predict --checkpoint data/cv/run01/best.pt --out data/cv/maps01
+```
+
+The default spatial split uses contiguous west/central/east regions and excludes eight columns on each side of both boundaries. Training and validation each need both reviewed classes. The checkpoint stores train-only normalization, the validation-selected threshold and the split. Evaluation prints test confusion counts, precision, recall, F1 and IoU. Prediction writes a float score and a byte class map on the input grid. Keep the test region for final evaluation. The pilot loads one image pair into memory. Use `--before` and `--after` on each command for another compatible pair.
 
 ## Notes
 10m resolution limits small parcel detection.
@@ -164,7 +193,7 @@ The first reproducible acquisition milestone is to retrieve Sentinel-2 Level-2A 
 |:---:|:---:|
 | ![Tumbaco 2016 annual Sentinel-2 RGB](assets/sentinel2_2016_rgb.png) | ![Tumbaco 2025 annual Sentinel-2 RGB](assets/sentinel2_2025_rgb.png) |
 
-The images are display-oriented PNG exports derived from the scientific multiband GeoTIFFs; the original spectral values are retained in local GeoTIFFs for subsequent analysis. Both PNGs use a common RGB stretch for visual comparability. This is an **illustrative before/after comparison**, not yet a validated map of urban expansion. Differences may reflect seasonal sampling, atmosphere, residual cloud contamination, or land-cover change.
+The images are display-oriented PNG exports. The small scientific pilot GeoTIFFs are tracked under `data/<year>/sentinel2_<year>.tif`; larger benchmark and fallback outputs are managed locally. Both PNGs use a common RGB stretch for visual comparability. This is an **illustrative before/after comparison**, not yet a validated map of urban expansion. Differences may reflect seasonal sampling, atmosphere, residual cloud contamination, or land-cover change.
 
 **Image assets:** Place `sentinel2_2016_rgb.png` and `sentinel2_2025_rgb.png` in `assets/` for the table above to render on GitHub. Large source GeoTIFFs are intentionally excluded from version control.
 
